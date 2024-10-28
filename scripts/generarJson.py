@@ -1,7 +1,9 @@
 import pandas as pd
 from pathlib import Path
+import uuid
 import json
 import os
+import numpy as np
 
 # Ruta del archivo Excel
 archivo_clientes = Path('.\\data\\Calculo Carnot.xlsx')
