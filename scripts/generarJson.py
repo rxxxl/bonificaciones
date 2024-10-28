@@ -22,9 +22,9 @@ def generar_json_clientes(archivo_excel):
 
         for hoja in hojas:
 
-            if hoja.lower() == 'ofertas':
-                print(f"Omitiendo la hoja '{hoja}'.")
-                continue  # Salta a la siguiente iteración del bucle
+            #if hoja.lower() == 'ofertas':
+             #   print(f"Omitiendo la hoja '{hoja}'.")
+              #  continue  # Salta a la siguiente iteración del bucle
 
             # Leer cada hoja
             df = pd.read_excel(xls, sheet_name=hoja)
@@ -32,9 +32,10 @@ def generar_json_clientes(archivo_excel):
             # Eliminar columnas que no tienen nombre o están vacías
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
 
-            # Convertir el Sivec a string si es necesario (opcional)
-            if 'Sivec' in df.columns:
-                df['Sivec'] = df['Sivec'].astype(str)
+            # Convertir el EAN a string si es necesario (opcional)
+            if 'EAN' in df.columns:
+                df['EAN'] = df['EAN'].astype(str)
+
                 
             #Convertir correctamente la columna Fecha
             if 'Fecha' in df.columns:
@@ -43,9 +44,22 @@ def generar_json_clientes(archivo_excel):
 
             # Crear el nuevo campo 'Llave'
             if 'RETAIL' in df.columns:
-                df['Llave'] = df['RETAIL'].astype(str) + df['Sivec']
+                #Comprobar que el campo 'RETAIL' no tenga valores nulos
+                if df['RETAIL'].isnull().sum() > 0:
+                    print(f"La columna 'RETAIL' tiene valores nulos en la hoja '{hoja}'.")
+                    continue  # Salta a la siguiente iteración del bucle
+                #comprobar que el campo 'EAN' no tenga valores nulos
+                if df['EAN'].isnull().sum() > 0:
+                    print(f"La columna 'EAN' tiene valores nulos en la hoja '{hoja}'.")
+                    continue
+                
+                df['Llave'] = df['RETAIL'].astype(str) + df['EAN'].astype(str)
             else:
                 print(f"La columna 'RETAIL' no se encontró en la hoja '{hoja}'.")
+                
+                
+            # Agregar una columna de ID única usando UUID
+            df['ID'] = [str(uuid.uuid4()) for _ in range(len(df))]
 
             # Convertir el DataFrame a JSON
             json_data = df.to_json(orient='records', force_ascii=False)
@@ -73,11 +87,55 @@ def generar_json_negociacion(archivo_excel):
         df['Fecha inicio vigencia'] = pd.to_datetime(df['Fecha inicio vigencia'], errors='coerce').dt.strftime('%m/%d/%Y')
         df['Fecha fin vigencia'] = pd.to_datetime(df['Fecha fin vigencia'], errors='coerce').dt.strftime('%m/%d/%Y')
 
-        # Crear el nuevo campo 'Llave' concatenando 'Nombre alias' y 'Sivec'
-        df['Llave'] = df['Nombre alias'].astype(str) + df['Sivec'].astype(str)
+        # Verifica si 'Nombre alias', 'Sivec' y 'Nombre Laboratorio' existen en las columnas
+        if 'Nombre alias' in df.columns and 'Sivec' in df.columns and 'Nombre Laboratorio' in df.columns:
+            # Aseguramos que 'Nombre alias', 'Sivec' y 'Nombre Laboratorio' sean de tipo string
+            df['Nombre alias'] = df['Nombre alias'].fillna('').astype(str)
+            df['Sivec'] = df['Sivec'].fillna('').astype(str).replace(['N/A', 'NaN', 'None', '', np.nan], None)
+            df['Nombre Laboratorio'] = df['Nombre Laboratorio'].fillna('').astype(str)
+            
+            #eliminar los ultimos 2 caracteres de la columna 'Sivec'
+            df['Sivec'] = df['Sivec'].str[:-2]
+            
+            # Crear la columna 'Llave' basada en las condiciones
+            df['Llave'] = df.apply(lambda row: row['Nombre alias'] + row['Sivec'] 
+                                if row['Sivec'] not in [None, '', 'N/A', 'NaN', 'None'] 
+                                else row['Nombre Laboratorio'], axis=1)
+            
+            # Función para obtener el nivel
+            def obtener_nivel(datos, campos_prioridad=None):
+                if campos_prioridad is None:
+                    campos_prioridad = ['Nombre cliente', 'Numero Cliente', 'Nombre alias', 'Nombre subsegmento', 'Nombre segmento']
+                
+                # Caso especial: cuando todos los campos relevantes tienen "TODOS" o valores nulos/cero
+                if all(datos.get(campo) in ['TODOS', 0, '0', None, '', 0.0] for campo in campos_prioridad):
+                    return "TODOS"
+                
+                validaciones = {
+                    'Nombre segmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Nombre subsegmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Nombre alias': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Numero Cliente': lambda v: isinstance(v, (int, float)) and v > 0,
+                    'Nombre cliente': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                }
+                # Validar cada campo en orden de prioridad
+                for campo in campos_prioridad:
+                    valor = datos.get(campo)
+                    if campo in validaciones and validaciones[campo](valor):
+                        return campo
+                # Si no se encuentra un campo válido, retornar 'N/A'
+                return 'N/A'
 
+            # Calcular el nivel y añadirlo al DataFrame
+            df['NivelNego'] = df.apply(lambda row: obtener_nivel(row), axis=1)
+            
+        else:
+            raise ValueError("Las columnas necesarias ('Nombre alias', 'Sivec', 'Nombre Laboratorio') no están presentes en el DataFrame")
         # Eliminar columnas sin nombre
         df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
+        
+        # Agregar una columna de ID única usando UUID
+        df['ID'] = [str(uuid.uuid4()) for _ in range(len(df))]
 
         # Convertir el DataFrame a JSON
         json_data = df.to_json(orient='records', force_ascii=False)
@@ -127,23 +185,45 @@ def generar_json_ofertas(ruta_negociacion):
                 # Si no es ni SELL-OUT ni SELL-IN, ignorar este registro
                 continue
                 
-            def obtener_nivel(datos):
-                if datos.get('Nombre alias'):
-                    return 'Nombre alias'
-                elif datos.get('Nombre segmento'):
-                    return 'Nombre segmento'
-                elif datos.get('Nombre subsegmento'):
-                    return 'Nombre subsegmento'
-                elif datos.get('Numero Cliente'):
-                    return 'Numero Cliente'
-                elif datos.get('Nombre cliente'):
-                    return 'Nombre cliente'
-                return 'N/A'  # En caso de que ninguno tenga valor
+            def obtener_nivel(datos, campos_prioridad=None):
+                if campos_prioridad is None:
+                    campos_prioridad = ['Nombre cliente', 'Numero Cliente', 'Nombre alias', 'Nombre subsegmento', 'Nombre segmento']
+                
+                """
+                Obtiene el nivel basado en el primer campo no vacío y válido en la lista de campos de prioridad, 
+                validando el tipo de datos y aplicando reglas específicas si se requiere.
 
+                Args:
+                    datos: Un diccionario con los datos del registro.
+                    campos_prioridad: Una lista con los nombres de los campos a evaluar por orden de prioridad.
 
+                Returns:
+                    El nombre del primer campo no vacío y válido o 'N/A' si todos están vacíos o no son válidos.
+                """
+
+                # Caso especial: cuando todos los campos relevantes tienen "TODOS" o valores nulos/cero
+                if all(datos.get(campo) in ['TODOS', 0, '0', None, '', 0.0] for campo in campos_prioridad):
+                    return "TODOS"
+                
+                validaciones = {
+                    'Nombre segmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Nombre subsegmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Nombre alias': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                    'Numero Cliente': lambda v: isinstance(v, (int, float)) and v > 0,
+                    'Nombre cliente': lambda v: isinstance(v, str) and v and v != 'TODOS',
+                }
+                # Validar cada campo en orden de prioridad
+                for campo in campos_prioridad:
+                    valor = datos.get(campo)
+                    if campo in validaciones and validaciones[campo](valor):
+                        return campo
+                # Si no se encuentra un campo válido, retornar 'N/A'
+                return 'N/A'
             # Inicializar estructura para almacenar CAP y OFERTA si no existe para esta llave
             if llave not in datos_por_llave:
                 datos_por_llave[llave] = {
+                    'ID': str(uuid.uuid4()),  # Generar un ID único
+                    'Folio': registro.get('Folio', 'N/A'),
                     'Nombre alias': registro.get('Nombre alias', 'N/A'),
                     'Sivec': registro.get('Sivec', 'N/A'),
                     'NOMBRE': registro.get('Nombre articulo', 'N/A'),
@@ -167,6 +247,7 @@ def generar_json_ofertas(ruta_negociacion):
                 datos_por_llave[llave]['CAP'] = registro.get('Oferta costo', 0.0)
             elif folio_caso == 2:
                 datos_por_llave[llave]['OFERTA'] = registro.get('Oferta costo', 0.0)
+                
 
         # Función para generar registros finales con ponderado
         def generar_registros_finales(datos_por_llave):
@@ -179,6 +260,8 @@ def generar_json_ofertas(ruta_negociacion):
 
                 # Reordenar campos, asegurando que 'Llave' esté al final
                 registro_ordenado = {
+                    'ID': datos['ID'],  # Incluir el ID único
+                    'Folio': datos['Folio'],
                     'Nombre regla': datos['Nombre regla'],
                     'Costo fijo': datos['Costo fijo'],
                     "Tipo condicion costo": datos['Tipo condicion costo'],
@@ -229,6 +312,8 @@ def generar_json_ofertas(ruta_negociacion):
 # Ejecutar las funciones
 generar_json_clientes(archivo_clientes)
 generar_json_negociacion(archivo_negociacion)
+
+
 
 # Generar el JSON de ofertas utilizando la ruta del archivo de negociaciones
 ruta_negociacion = os.path.join(carpeta_data, 'negociacion.json')  # Ruta del JSON de negociaciones
