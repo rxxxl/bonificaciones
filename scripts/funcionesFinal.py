@@ -1,3 +1,4 @@
+import logging
 import json  # Importa el módulo json para trabajar con archivos JSON.
 import os  # Importa el módulo os para interactuar con el sistema operativo.
 from datetime import datetime  # Importa la clase datetime del módulo datetime.
@@ -6,8 +7,19 @@ from datetime import datetime  # Importa la clase datetime del módulo datetime.
 RUTA_ARCHIVO = ".\\json\\Base_Venta_detalle_Fanasa.json"  # Ruta del archivo sell_out.json.
 RUTA_PRODUCTOS = ".\\json\\Catalogo_de_Productos.json"  # Ruta del archivo productos.json.
 RUTA_CLIENTES = ".\\json\\Clientes_Aplicables.json"  # Ruta del archivo clientes_aplicables.json.
-RUTA_OFERTAS = ".\\json\\ofertaFinal.json"  # Ruta del archivo ofertas.json.
+RUTA_OFERTAS = ".\\json\\ofertaSellOut.json"  # Ruta del archivo ofertas.json.
 OUTPUT_FILE_PATH = "./json/sell_out_final.json"  # Ruta donde se guardará el archivo de salida.
+
+
+
+# Configuración básica de logging
+LOG_FILE_PATH = "./logs/app.log"
+logging.basicConfig(
+    filename=LOG_FILE_PATH,
+    level=logging.DEBUG,  # Puedes cambiar el nivel a INFO, ERROR, etc.
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 
 # Función para cargar archivos JSON
 def cargar_json(ruta):
@@ -224,7 +236,8 @@ def procesar_elemento(primer_elemento, productos_dict, clientes_dict, ofertas_di
             else:
                 print(f"La fecha {fecha} no está dentro del rango de vigencia para la oferta con llave {llave} fecha inicio {fecha_inicio_vigencia} {fecha_fin_vigencia}" )
         else:
-            print(f"No se encontró oferta para la llave {llave}")
+            print(f"No se encontró oferta para la llave {llave} en el diccionario de ofertas.")
+            
    
 
 # Función principal para procesar los archivos

@@ -7,7 +7,7 @@ import numpy as np
 
 # Ruta del archivo Excel
 archivo_clientes = Path('.\\data\\Calculo Carnot.xlsx')
-archivo_negociacion = Path('.\\data\\enf.xlsx')
+archivo_negociacion = Path('.\\data\\ENF22.xlsx')
 # Crear la carpeta 'data' si no existe
 carpeta_data = './Json'
 os.makedirs(carpeta_data, exist_ok=True)
@@ -82,7 +82,7 @@ def generar_json_clientes(archivo_excel):
 # Función para generar JSON de Negociaciones
 def generar_json_negociacion(archivo_excel):
     try:
-        # Leer el archivo Excel
+        # Leer el archivo Excel, en este caso la negociacion
         df = pd.read_excel(archivo_excel)
 
         # Convertir fechas a un formato más legible (si es necesario)
@@ -229,6 +229,7 @@ def generar_json_ofertas(ruta_negociacion):
                     'Nombre alias': registro.get('Nombre alias', 'N/A'),
                     'Sivec': registro.get('Sivec', 'N/A'),
                     'NOMBRE': registro.get('Nombre articulo', 'N/A'),
+                    'Folio caso': folio_caso,
                     'CAP': 0.0,
                     'OFERTA': 0.0,
                     'Nombre regla': registro.get('Nombre regla', 'N/A'),
