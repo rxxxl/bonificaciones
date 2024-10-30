@@ -7,7 +7,7 @@ import numpy as np
 
 # Ruta del archivo Excel
 archivo_clientes = Path('.\\data\\Calculo Carnot.xlsx')
-archivo_negociacion = Path('.\\data\\ENF22.xlsx')
+archivo_negociacion = Path('.\\data\\enf.xlsx')
 # Crear la carpeta 'data' si no existe
 carpeta_data = './Json'
 os.makedirs(carpeta_data, exist_ok=True)
@@ -80,39 +80,33 @@ def generar_json_clientes(archivo_excel):
         print(f"Se produjo un error al procesar el archivo de clientes: {e}")
 
 # Función para generar JSON de Negociaciones
-def generar_json_negociacion(archivo_excel):
+def generar_json_negociacion(archivo_excel, carpeta_data):
     try:
-        # Leer el archivo Excel, en este caso la negociacion
+        # Leer el archivo Excel
         df = pd.read_excel(archivo_excel)
 
-        # Convertir fechas a un formato más legible (si es necesario)
+        # Convertir fechas a formato legible
         df['Fecha inicio vigencia'] = pd.to_datetime(df['Fecha inicio vigencia'], errors='coerce').dt.strftime('%m/%d/%Y')
         df['Fecha fin vigencia'] = pd.to_datetime(df['Fecha fin vigencia'], errors='coerce').dt.strftime('%m/%d/%Y')
 
-        # Verifica si 'Nombre alias', 'Sivec' y 'Nombre Laboratorio' existen en las columnas
+        # Validar columnas necesarias
         if 'Nombre alias' in df.columns and 'Sivec' in df.columns and 'Nombre Laboratorio' in df.columns:
-            # Aseguramos que 'Nombre alias', 'Sivec' y 'Nombre Laboratorio' sean de tipo string
             df['Nombre alias'] = df['Nombre alias'].fillna('').astype(str)
             df['Sivec'] = df['Sivec'].fillna('').astype(str).replace(['N/A', 'NaN', 'None', '', np.nan], None)
             df['Nombre Laboratorio'] = df['Nombre Laboratorio'].fillna('').astype(str)
-            
-            #eliminar los ultimos 2 caracteres de la columna 'Sivec'
             df['Sivec'] = df['Sivec'].str[:-2]
-            
-            # Crear la columna 'Llave' basada en las condiciones
+
+            # Generar la columna 'Llave'
             df['Llave'] = df.apply(lambda row: row['Nombre alias'] + row['Sivec'] 
-                                if row['Sivec'] not in [None, '', 'N/A', 'NaN', 'None'] 
-                                else row['Nombre Laboratorio'], axis=1)
-            
+                                    if row['Sivec'] not in [None, '', 'N/A', 'NaN', 'None'] 
+                                    else row['Nombre Laboratorio'], axis=1)
+
             # Función para obtener el nivel
             def obtener_nivel(datos, campos_prioridad=None):
                 if campos_prioridad is None:
                     campos_prioridad = ['Nombre cliente', 'Numero Cliente', 'Nombre alias', 'Nombre subsegmento', 'Nombre segmento']
-                
-                # Caso especial: cuando todos los campos relevantes tienen "TODOS" o valores nulos/cero
                 if all(datos.get(campo) in ['TODOS', 0, '0', None, '', 0.0] for campo in campos_prioridad):
                     return "TODOS"
-                
                 validaciones = {
                     'Nombre segmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
                     'Nombre subsegmento': lambda v: isinstance(v, str) and v and v != 'TODOS',
@@ -120,34 +114,33 @@ def generar_json_negociacion(archivo_excel):
                     'Numero Cliente': lambda v: isinstance(v, (int, float)) and v > 0,
                     'Nombre cliente': lambda v: isinstance(v, str) and v and v != 'TODOS',
                 }
-                # Validar cada campo en orden de prioridad
                 for campo in campos_prioridad:
                     valor = datos.get(campo)
                     if campo in validaciones and validaciones[campo](valor):
                         return campo
-                # Si no se encuentra un campo válido, retornar 'N/A'
                 return 'N/A'
 
-            # Calcular el nivel y añadirlo al DataFrame
+            # Agregar columna 'NivelNego'
             df['NivelNego'] = df.apply(lambda row: obtener_nivel(row), axis=1)
             
         else:
             raise ValueError("Las columnas necesarias ('Nombre alias', 'Sivec', 'Nombre Laboratorio') no están presentes en el DataFrame")
+
         # Eliminar columnas sin nombre
         df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
         
-        # Agregar una columna de ID única usando UUID
+        # Agregar columna de ID única
         df['ID'] = [str(uuid.uuid4()) for _ in range(len(df))]
 
-        # Convertir el DataFrame a JSON
-        json_data = df.to_json(orient='records', force_ascii=False)
-
-        # Guardar el JSON en un archivo con nombre específico
-        ruta_json_negociacion = os.path.join(carpeta_data, 'negociacion.json')
-        with open(ruta_json_negociacion, 'w', encoding='utf-8') as json_file:
-            json.dump(json.loads(json_data), json_file, ensure_ascii=False, indent=4)
-
-        print("Conversión a JSON de negociaciones completada. Los datos se han guardado en 'negociacion.json'.")
+        # Filtrar y guardar los datos en archivos separados según 'Tipo condicion'
+        for condicion in ['SELL-IN', 'SELL-OUT']:
+            df_condicion = df[df['Tipo condicion'] == condicion]
+            json_data = df_condicion.to_json(orient='records', force_ascii=False)
+            nombre_archivo = f'negociacion_{condicion.lower()}.json'
+            ruta_json = os.path.join(carpeta_data, nombre_archivo)
+            with open(ruta_json, 'w', encoding='utf-8') as json_file:
+                json.dump(json.loads(json_data), json_file, ensure_ascii=False, indent=4)
+            print(f"Archivo JSON '{nombre_archivo}' generado con éxito.")
 
     except Exception as e:
         print(f"Se produjo un error al procesar el archivo de negociación: {e}")
@@ -314,10 +307,10 @@ def generar_json_ofertas(ruta_negociacion):
         print(f'Se produjo un error inesperado: {e}')
 # Ejecutar las funciones
 generar_json_clientes(archivo_clientes)
-generar_json_negociacion(archivo_negociacion)
+generar_json_negociacion(archivo_negociacion , carpeta_data)
 
 
 
 # Generar el JSON de ofertas utilizando la ruta del archivo de negociaciones
-ruta_negociacion = os.path.join(carpeta_data, 'negociacion.json')  # Ruta del JSON de negociaciones
+ruta_negociacion = os.path.join(carpeta_data, 'negociacion_sell-out.json')  # Ruta del JSON de negociaciones
 generar_json_ofertas(ruta_negociacion)
