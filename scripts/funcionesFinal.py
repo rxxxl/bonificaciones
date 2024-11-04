@@ -1,6 +1,19 @@
 import json  # Importa el módulo json para trabajar con archivos JSON.
 import os  # Importa el módulo os para interactuar con el sistema operativo.
+import logging
 from datetime import datetime  # Importa la clase datetime del módulo datetime.
+
+
+#Configuración de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("logs/funcionesFinal.log"),
+        logging.StreamHandler()
+    ]
+)
+
 
 # Rutas de los archivos que se utilizarán en el script.
 RUTA_ARCHIVO = ".\\json\\Base_Venta_detalle_Fanasa.json"  # Ruta del archivo sell_out.json.
@@ -27,14 +40,15 @@ def cargar_json(ruta):
         Exception: Para cualquier otro tipo de error que ocurra durante la carga del archivo.
     """
     try:
+        logging.info(f"Cargando archivo: {ruta}")
         with open(ruta, 'r', encoding='utf-8') as file:
             return json.load(file)
     except FileNotFoundError:
-        print(f"El archivo no se encontró: {ruta}")
+        logging.error(f"El archivo no se encontró en la ruta especificada: {ruta}")
     except json.JSONDecodeError:
-        print(f"Error al decodificar JSON en el archivo: {ruta}")
+        logging.error(f"Error al decodificar JSON en el archivo: {ruta}")
     except Exception as e:
-        print(f"Error al cargar el archivo {ruta}: {e}")
+        logging.error(f"Error al cargar el archivo {ruta}: {e}")
     return None
 
 # Función para calcular los campos financieros
@@ -54,6 +68,7 @@ def calcular_campos_financieros(elemento):
         - "Valor Oferta": El resultado de multiplicar el costo con CAP por el valor de la oferta.
         - "Total Beneficio": La suma del valor CAP y el valor de la oferta.
     """
+    logging.info("Calculando campos financieros...")
     if "CAP" in elemento and "Costo Total" in elemento:
         
         cap = float(elemento["CAP"])
@@ -89,6 +104,7 @@ def calcular_condicion_costo(primer_elemento):
         - "Costo Total" (float): El costo total calculado (solo para "% DESCUENTO SOBRE COSTO").
         - "Valor condicion Costo" (float o str): El resultado del cálculo basado en la condición de costo.
     """
+    logging.info("Calculando condiciones de costo...")
     tipo_condicion_costo = primer_elemento.get("Tipo condicion costo", None)
     resultado_condicion = 0
 
@@ -112,6 +128,7 @@ def calcular_condicion_costo(primer_elemento):
         costo_total = piezas_facturadas * valor_tipo_valuacion 
         primer_elemento["Costo Total"] = costo_total
     elif tipo_condicion_costo == "Costo Fijo":
+        '''
         #(pzas facturadas * valor tipo de valuacion) - (costo_fijo * pzas facturadas)
         piezas_facturadas = float(primer_elemento.get("Pzas Facturadas", 1))
         valor_tipo_valuacion = float(primer_elemento.get("Valor Tipo de Valuacion", 0.0))
@@ -119,12 +136,52 @@ def calcular_condicion_costo(primer_elemento):
         
         
         resultado_condicion = (piezas_facturadas * valor_tipo_valuacion) - (costo_fijo * piezas_facturadas)
+        
+        '''
+        
+        piezas_facturadas = float(primer_elemento.get("Pzas Facturadas", 1))
+        
+        if "CAP" in primer_elemento and "Costo Total" in primer_elemento:
+            cap = float(primer_elemento["CAP"])
+            costo_total = float(primer_elemento.get("Costo Total"))
+            
+            primer_elemento["Valor CAP"] = float(primer_elemento.get("Costo Total", 0.0)) - (cap * piezas_facturadas)
+            primer_elemento["Costo con CAP"] = costo_total - primer_elemento["Valor CAP"]
+            
+        if "Costo con CAP" in primer_elemento and "OFERTA" in primer_elemento: 
+            primer_elemento["Valor Oferta"] = primer_elemento["Costo con CAP"] * float(primer_elemento["OFERTA"])
+            
+        if "Valor CAP" in primer_elemento and "Valor Oferta" in primer_elemento:
+            primer_elemento["Total Beneficio"] = primer_elemento["Valor CAP"] + primer_elemento["Valor Oferta"]
+            
+            
+        
     elif tipo_condicion_costo == "Monto Fijo":
+        #==============================
+        #AGREGAR CODIGO CRIS 
+        #==============================
+        
+        piezas_facturadas = float(primer_elemento.get("Pzas Facturadas", 1))
+        
+        if "CAP" in primer_elemento and "Costo Total" in primer_elemento:
+            cap = float(primer_elemento["CAP"])
+            costo_total = float(primer_elemento.get("Costo Total"))
+            
+            primer_elemento["Valor CAP"] = cap * piezas_facturadas
+            primer_elemento["Costo con CAP"] = costo_total - primer_elemento["Valor CAP"]
+        
+        if "Costo con CAP" in primer_elemento and "OFERTA" in primer_elemento:
+            primer_elemento["Valor Oferta"] = primer_elemento["Costo con CAP"] * float(primer_elemento["OFERTA"])
+            
+        if "Valor CAP" in primer_elemento and "Valor Oferta" in primer_elemento:
+            primer_elemento["Total Beneficio"] = primer_elemento["Valor CAP"] + primer_elemento["Valor Oferta"]
+            
         # Realiza la operación correspondiente a "condicion3"
         resultado_condicion = "Hola monto fijo" # Ejemplo de cálculo
     else:
         # Si no se encuentra una condición válida, se puede definir un valor predeterminado
-        resultado_condicion = "hOLA POR DEFECTO "
+        resultado_condicion = "No especificado o no reconocido en tipo de condición de costo"
+        logging.warning(f"Tipo de condición de costo no reconocido: {tipo_condicion_costo} para el producto {primer_elemento.get('Producto Código', 'No especificado')}")
 
     # Agregar el resultado de la condición al JSON
     primer_elemento["Valor condicion Costo"] = resultado_condicion
@@ -141,16 +198,19 @@ def verificar_vigencia(fecha, fecha_inicio_vigencia, fecha_fin_vigencia):
     Returns:
         bool: True si la fecha está dentro del rango de vigencia, False en caso contrario.
     """
-    # Convertir las fechas a objetos datetime
-    formato_fecha = '%m/%d/%Y'  # Ajusta el formato según sea necesario
-    fecha = datetime.strptime(fecha, formato_fecha)
-    fecha_inicio_vigencia = datetime.strptime(fecha_inicio_vigencia, formato_fecha)
-    fecha_fin_vigencia = datetime.strptime(fecha_fin_vigencia, formato_fecha)
-    
-    
-    # Verificar si la fecha está en el rango
-    return fecha_inicio_vigencia <= fecha <= fecha_fin_vigencia
-
+    try:
+        # Convertir las fechas a objetos datetime
+        formato_fecha = '%m/%d/%Y'  # Ajusta el formato según sea necesario
+        fecha = datetime.strptime(fecha, formato_fecha)
+        fecha_inicio_vigencia = datetime.strptime(fecha_inicio_vigencia, formato_fecha)
+        fecha_fin_vigencia = datetime.strptime(fecha_fin_vigencia, formato_fecha)
+        
+        
+        # Verificar si la fecha está en el rango
+        return fecha_inicio_vigencia <= fecha <= fecha_fin_vigencia
+    except ValueError as e:
+        logging.error(f"Error al convertir las fechas: {e} - {fecha}, {fecha_inicio_vigencia}, {fecha_fin_vigencia}")
+        return False
 
 
 # Función para procesar un elemento de sell_out
@@ -169,6 +229,8 @@ def procesar_elemento(primer_elemento, productos_dict, clientes_dict, ofertas_di
         - Validación del cliente y generación de una llave única.
         - Verificación de ofertas aplicables y actualización de datos financieros y de condiciones de costo.
     """
+    logging.info(f"Procesando elemento: {primer_elemento.get('Producto Código', 'Desconocido')}")
+    
     # Procesar Producto Código y EAN
     if "Producto Código" in primer_elemento:
         producto_codigo = primer_elemento["Producto Código"]
@@ -205,12 +267,21 @@ def procesar_elemento(primer_elemento, productos_dict, clientes_dict, ofertas_di
                 primer_elemento["CAP"] = float(oferta_encontrada.get("CAP", 0.0))
                 primer_elemento["OFERTA"] = float(oferta_encontrada.get("Oferta", 0.0))
 
+                
+                #ajustar aquiiiiiiiiiiiiiiiiiiiii
                 # Obtener el "Tipo de Valuacion" desde el diccionario de ofertas
                 tipo_valuacion = oferta_encontrada.get("Nombre regla", None)
                 if tipo_valuacion and codigo_base in productos_dict:
-                    primer_elemento["Valor Tipo de Valuacion"] = productos_dict[codigo_base].get(tipo_valuacion, None)
-                    primer_elemento["Tipo de Valuacion"] = tipo_valuacion  # Agregamos el tipo de valuación
-                
+                    #Si tipo_valuacion es Costo FIjo entonces se debe obtener el valor de "Costo Fijo" que viene en la oferta
+                    if tipo_valuacion == "Costo Fijo":
+                        primer_elemento["Valor Tipo de Valuacion"] = oferta_encontrada.get("Costo Fijo", None)
+                        primer_elemento["Tipo de Valuacion"] = tipo_valuacion
+                    else:
+                        primer_elemento["Valor Tipo de Valuacion"] = productos_dict[codigo_base].get(tipo_valuacion, None)
+                        primer_elemento["Tipo de Valuacion"] = tipo_valuacion  # Agregamos el tipo de valuación
+                    #!================AQUI HACER EL AJUSTE DE NOMBRE REGLA
+                    
+                    
                 # Obtener el "Tipo condicion costo" desde el diccionario de ofertas 
                 tipo_condicion_costo = oferta_encontrada.get("Tipo condicion costo", None)
                 if tipo_condicion_costo:
@@ -222,10 +293,9 @@ def procesar_elemento(primer_elemento, productos_dict, clientes_dict, ofertas_di
                 # Calcular campos financieros
                 calcular_campos_financieros(primer_elemento)
             else:
-                print(f"La fecha {fecha} no está dentro del rango de vigencia para la oferta con llave {llave} fecha inicio {fecha_inicio_vigencia} {fecha_fin_vigencia}" )
+                logging.warning(f"La fecha {fecha} no está dentro del rango de vigencia para la oferta con llave {llave} fecha inicio {fecha_inicio_vigencia} {fecha_fin_vigencia}" )
         else:
-            print(f"No se encontró oferta para la llave {llave}")
-   
+            logging.warning(f"No se encontró oferta para la llave {llave}")   
 
 # Función principal para procesar los archivos
 def procesar_archivos():
@@ -254,7 +324,7 @@ def procesar_archivos():
     ofertas = cargar_json(RUTA_OFERTAS)
 
     if not all([data, productos, clientes, ofertas]):
-        print("No se pudieron cargar todos los archivos.")
+        logging.error("No se pudieron cargar todos los archivos necesarios.")
         return
 
     # Crear diccionario de ofertas
@@ -265,7 +335,7 @@ def procesar_archivos():
     total_elementos = len(data)
 
     for index, primer_elemento in enumerate(data[:total_elementos]):
-        print(f"Procesando elemento {index + 1} de {total_elementos}")
+        logging.info(f"Procesando elemento {index + 1} de {total_elementos}")
         procesar_elemento(primer_elemento, productos_dict, clientes_dict, ofertas_dict)
 
     # Guardar el archivo modificado
@@ -287,9 +357,11 @@ def guardar_json(ruta, data):
     try:
         with open(ruta, 'w', encoding='utf-8') as output_file:
             json.dump(data, output_file, ensure_ascii=False, indent=4)
-        print(f"Proceso completado. Datos guardados en: {ruta}")
+        logging.info(f"Proceso completado. Datos guardados en: {ruta}")
+        #print(f"Proceso completado. Datos guardados en: {ruta}")
     except Exception as e:
-        print(f"Error al guardar el archivo {ruta}: {e}")
+        logging.error(f"Error al guardar el archivo {ruta}: {e}")
+        #print(f"Error al guardar el archivo {ruta}: {e}")
 
 # Ejecutar la función principal
 if __name__ == "__main__":
