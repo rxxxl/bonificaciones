@@ -226,7 +226,7 @@ def generar_json_ofertas(ruta_negociacion):
                     'CAP': 0.0,
                     'OFERTA': 0.0,
                     'Nombre regla': registro.get('Nombre regla', 'N/A'),
-                    'Costo fijo': registro.get('Costo fijo', 0.0),
+                    'Costo fijo': registro.get('Costo Fijo', 0.0),
                     'Nivel': obtener_nivel(registro),
                     'Nombre segmento': registro.get('Nombre segmento', 'N/A'),
                     'Nombre subsegmento': registro.get('Nombre subsegmento', 'N/A'),
